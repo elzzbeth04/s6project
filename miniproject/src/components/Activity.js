@@ -1,34 +1,90 @@
 import { Link } from 'react-router-dom';
-import React, { useState } from 'react';
-import { Bell, Search, Settings, User, MessageSquare, Activity, Award, LogOut, Home, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Upload, FileText, X, CheckCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Bell, Search, Settings, User, MessageSquare, Activity, Award, LogOut, Home, Upload, FileText, X, CheckCircle, Download, Trash2 } from 'lucide-react';
+import { useCertificateUpload } from '../components/useCertificateUpload'; // Import our custom hook
+import { supabase } from '../supabase'; // Import supabase client
 import './Activity.css';
 
 const ActivityPoints = () => {
-  // For file upload
+  // Get current user ID
+  const [studentId, setStudentId] = useState(null);
   const [selectedFiles, setSelectedFiles] = useState([]);
-  const [uploadProgress, setUploadProgress] = useState(0);
   const [showUploadModal, setShowUploadModal] = useState(false);
-  // New state for uploaded files
-  const [uploadedFiles, setUploadedFiles] = useState([
-    { id: 1, name: "community_service.pdf", date: "2024-10-15", status: "Verified" },
-    { id: 2, name: "hackathon_certificate.pdf", date: "2024-09-25", status: "Pending" }
-  ]);
-  // New state for upload success message
   const [showUploadSuccess, setShowUploadSuccess] = useState(false);
+    
+  // Use our custom hook
+  const {
+    uploadMultipleCertificates,
+    fetchStudentCertificates,
+    getCertificateUrl,
+    deleteCertificate,
+    uploadedFiles,
+    isUploading,
+    uploadProgress,
+    error
+  } = useCertificateUpload(studentId);
   
-  // Mock activity points data
-  const activityData = [
-    { id: 1, activity: "IEEE Conference Participation", date: "2024-11-10", points: 15, certificate: "ieee_cert.pdf" },
-    { id: 2, activity: "Hackathon Winner", date: "2024-09-22", points: 25, certificate: "hackathon_cert.pdf" },
-    { id: 3, activity: "Community Service", date: "2024-10-05", points: 10, certificate: "community_cert.pdf" },
-    { id: 4, activity: "Workshop Organizer", date: "2024-08-15", points: 20, certificate: "workshop_cert.pdf" },
-    { id: 5, activity: "Research Paper Publication", date: "2024-07-30", points: 30, certificate: "research_cert.pdf" }
-  ];
-
-  // Calculate total points and percentage
-  const totalPointsRequired = 100;
-  const earnedPoints = activityData.reduce((sum, item) => sum + item.points, 0);
-  const completionPercentage = Math.min(Math.round((earnedPoints / totalPointsRequired) * 100), 100);
+  // Activity data state
+  const [activityData, setActivityData] = useState([]);
+  const [totalPoints, setTotalPoints] = useState(0);
+  
+  // Get current user on component mount
+  useEffect(() => {
+    const getCurrentUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        setStudentId(user.id);
+      }
+    };
+    
+    getCurrentUser();
+  }, []);
+  
+  // Fetch certificates when studentId is available
+  useEffect(() => {
+    if (studentId) {
+      fetchStudentCertificates();
+      fetchActivityPoints();
+    }
+  }, [studentId]);
+  
+  // Fetch activity points data
+  const fetchActivityPoints = async () => {
+    if (!studentId) return;
+    
+    try {
+      // Get verified certificates with points
+      const { data, error } = await supabase
+        .from('certificates')
+        .select('*')
+        .eq('id', studentId)
+        .eq('status', 'Verified');
+        
+      if (error) {
+        console.error('Error fetching activity data:', error);
+        return;
+      }
+      
+      // Transform the data for display
+      const activities = data.map(cert => ({
+        id: cert.certificate_id,
+        activity: cert.certificate.split('/').pop().replace(/\.[^/.]+$/, "").replace(/-/g, " "), // Generate activity name from filename
+        date: new Date(cert.uploaded_at).toLocaleDateString(),
+        points: cert.activity_point,
+        certificate: cert.certificate,
+        url: getCertificateUrl(cert.certificate)
+      }));
+      
+      setActivityData(activities);
+      
+      // Calculate total points
+      const earned = data.reduce((sum, item) => sum + item.activity_point, 0);
+      setTotalPoints(earned);
+      
+    } catch (error) {
+      console.error('Error in fetchActivityPoints:', error);
+    }
+  };
   
   // Handle file selection
   const handleFileChange = (e) => {
@@ -37,45 +93,59 @@ const ActivityPoints = () => {
   };
   
   // Handle file upload
-  const handleUpload = () => {
+  const handleUpload = async () => {
     if (selectedFiles.length === 0) return;
     
-    // Simulate upload progress
-    let progress = 0;
-    const interval = setInterval(() => {
-      progress += 10;
-      setUploadProgress(progress);
+    const { uploaded, errors } = await uploadMultipleCertificates(selectedFiles);
+    
+    if (uploaded.length > 0) {
+      setSelectedFiles([]);
+      setShowUploadModal(false);
+      setShowUploadSuccess(true);
       
-      if (progress >= 100) {
-        clearInterval(interval);
-        setTimeout(() => {
-          // Add uploaded files to the list
-          const newUploadedFiles = selectedFiles.map((file, index) => ({
-            id: uploadedFiles.length + index + 1,
-            name: file.name,
-            date: new Date().toISOString().split('T')[0],
-            status: "Pending"
-          }));
-          
-          setUploadedFiles([...uploadedFiles, ...newUploadedFiles]);
-          setUploadProgress(0);
-          setSelectedFiles([]);
-          setShowUploadModal(false);
-          // Show upload success message
-          setShowUploadSuccess(true);
-          // Hide success message after 5 seconds
-          setTimeout(() => {
-            setShowUploadSuccess(false);
-          }, 5000);
-        }, 1000);
-      }
-    }, 300);
+      // Refresh the certificates list
+      fetchStudentCertificates();
+      
+      // Hide success message after 5 seconds
+      setTimeout(() => {
+        setShowUploadSuccess(false);
+      }, 5000);
+    }
+    
+    if (errors.length > 0) {
+      console.error('Some files failed to upload:', errors);
+      // You could show an error message to the user here
+    }
   };
   
   // Remove a file from the selected files list
   const removeFile = (index) => {
     setSelectedFiles(selectedFiles.filter((_, i) => i !== index));
   };
+  
+  // Handle certificate deletion
+  const handleDeleteCertificate = async (certificateId, filePath) => {
+    const confirmed = window.confirm('Are you sure you want to delete this certificate?');
+    if (confirmed) {
+      const success = await deleteCertificate(certificateId, filePath);
+      if (success) {
+        // Refresh data after successful deletion
+        fetchStudentCertificates();
+        fetchActivityPoints();
+      }
+    }
+  };
+  
+  // View or download certificate
+  const handleViewCertificate = (url) => {
+    if (url) {
+      window.open(url, '_blank');
+    }
+  };
+  
+  // Calculate completion percentage
+  const totalPointsRequired = 100;
+  const completionPercentage = Math.min(Math.round((totalPoints / totalPointsRequired) * 100), 100);
 
   return (
     <div className="portal-container">
@@ -149,7 +219,7 @@ const ActivityPoints = () => {
                       ></div>
                     </div>
                     <div className="progress-numbers">
-                      <span>{earnedPoints} points earned</span>
+                      <span>{totalPoints} points earned</span>
                       <span>{completionPercentage}% complete</span>
                       <span>{totalPointsRequired} points required</span>
                     </div>
@@ -164,6 +234,13 @@ const ActivityPoints = () => {
                   <p className="upload-description">
                     Upload certificates for activity points verification. Supported formats: PDF, JPG, PNG (max 5MB each)
                   </p>
+                  {/* Error message */}
+                  {error && (
+                    <div className="upload-error-message">
+                      <X size={18} color="#F44336" />
+                      <span>Error: {error}</span>
+                    </div>
+                  )}
                   {/* Upload Success Message */}
                   {showUploadSuccess && (
                     <div className="upload-success-message">
@@ -179,7 +256,7 @@ const ActivityPoints = () => {
                     Upload Certificates
                   </button>
                   
-                  {/* New Uploaded Files Section */}
+                  {/* Uploaded Files Section */}
                   {uploadedFiles.length > 0 && (
                     <div className="uploaded-files-section">
                       <h3 className="uploaded-files-title">Uploaded Files</h3>
@@ -190,6 +267,7 @@ const ActivityPoints = () => {
                               <th>File Name</th>
                               <th>Upload Date</th>
                               <th>Status</th>
+                              <th>Actions</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -206,6 +284,22 @@ const ActivityPoints = () => {
                                   <span className={`status-badge status-${file.status.toLowerCase()}`}>
                                     {file.status}
                                   </span>
+                                </td>
+                                <td className="actions-cell">
+                                  <button 
+                                    className="view-cert-btn"
+                                    onClick={() => handleViewCertificate(file.url)}
+                                  >
+                                    <Download size={16} />
+                                    View
+                                  </button>
+                                  <button 
+                                    className="delete-cert-btn"
+                                    onClick={() => handleDeleteCertificate(file.id, file.path)}
+                                  >
+                                    <Trash2 size={16} />
+                                    Delete
+                                  </button>
                                 </td>
                               </tr>
                             ))}
@@ -232,24 +326,33 @@ const ActivityPoints = () => {
                         </tr>
                       </thead>
                       <tbody>
-                        {activityData.map(item => (
-                          <tr key={item.id}>
-                            <td>{item.activity}</td>
-                            <td>{new Date(item.date).toLocaleDateString()}</td>
-                            <td>{item.points}</td>
-                            <td>
-                              <button className="view-cert-btn">
-                                <FileText size={16} />
-                                View
-                              </button>
-                            </td>
+                        {activityData.length > 0 ? (
+                          activityData.map(item => (
+                            <tr key={item.id}>
+                              <td>{item.activity}</td>
+                              <td>{item.date}</td>
+                              <td>{item.points}</td>
+                              <td>
+                                <button 
+                                  className="view-cert-btn"
+                                  onClick={() => handleViewCertificate(item.url)}
+                                >
+                                  <FileText size={16} />
+                                  View
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan="4" className="no-data">No verified activities yet</td>
                           </tr>
-                        ))}
+                        )}
                       </tbody>
                       <tfoot>
                         <tr>
                           <td colSpan="2" className="total-label">Total Points Earned:</td>
-                          <td colSpan="2" className="total-value">{earnedPoints}</td>
+                          <td colSpan="2" className="total-value">{totalPoints}</td>
                         </tr>
                       </tfoot>
                     </table>
@@ -282,6 +385,7 @@ const ActivityPoints = () => {
                   multiple 
                   onChange={handleFileChange}
                   className="file-input"
+                  accept=".pdf,.jpg,.jpeg,.png"
                 />
                 <label htmlFor="certificate-upload" className="file-label">
                   <Upload size={20} />
@@ -308,7 +412,7 @@ const ActivityPoints = () => {
                 </div>
               )}
               
-              {uploadProgress > 0 && (
+              {isUploading && uploadProgress > 0 && (
                 <div className="upload-progress-container">
                   <div 
                     className="upload-progress-bar" 
@@ -328,9 +432,9 @@ const ActivityPoints = () => {
               <button 
                 className="upload-confirm-btn" 
                 onClick={handleUpload}
-                disabled={selectedFiles.length === 0}
+                disabled={selectedFiles.length === 0 || isUploading}
               >
-                Upload Files
+                {isUploading ? 'Uploading...' : 'Upload Files'}
               </button>
             </div>
           </div>

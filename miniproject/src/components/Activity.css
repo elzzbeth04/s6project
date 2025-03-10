@@ -3,6 +3,36 @@ body {
     background: radial-gradient(circle, rgba(237,231,234,1) 1%, rgba(122,153,190,1) 100%);
     overflow: hidden; /* Prevent body scrolling */
   }
+
+  /*for integrating ocr
+  /* Status badges */
+.status-badge {
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.status-verified {
+  background-color: #e6f7e6;
+  color: #4CAF50;
+}
+
+.status-pending {
+  background-color: #fff8e1;
+  color: #FF9800;
+}
+
+.status-failed {
+  background-color: #ffebee;
+  color: #F44336;
+}
+
+/* Processing styles */
+.upload-progress-text {
+  margin-top: 5px;
+  font-size: 0.85rem;
+}
   
   /* Main Container */
   .portal-container {
