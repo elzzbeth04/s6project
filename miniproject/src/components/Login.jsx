@@ -217,7 +217,9 @@ const AuthPage = () => {
       setLoading(false);
       return;
     }
-
+    console.log("Password from form:", password);
+      console.log("Stored password:", student.password);
+      
     const hashedPassword = await bcrypt.hash(password, 10);
     const entry = userType === "teacher"
       ? { id, name, dept, position, dob, password: hashedPassword }
